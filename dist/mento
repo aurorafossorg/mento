@@ -1,0 +1,189 @@
+#!/usr/bin/env bash
+
+#                                    / _|
+#   __ _ _   _ _ __ ___  _ __ __ _  | |_ ___  ___ ___
+#  / _` | | | | '__/ _ \| '__/ _` | |  _/ _ \/ __/ __|
+# | (_| | |_| | | | (_) | | | (_| | | || (_) \__ \__ \
+#  \__,_|\__,_|_|  \___/|_|  \__,_| |_| \___/|___/___/
+#
+# Copyright (C) 2019 Aurora Free Open Source Software.
+#
+# This file is part of the Aurora Free Open Source Software. This
+# organization promote free and open source software that you can
+# redistribute and/or modify under the terms of the GNU Lesser General
+# Public License Version 3 as published by the Free Software Foundation or
+# (at your option) any later version approved by the Aurora Free Open Source
+# Software Organization. The license is available in the package root path
+# as 'LICENSE' file. Please review the following information to ensure the
+# GNU Lesser General Public License version 3 requirements will be met:
+# https://www.gnu.org/licenses/lgpl.html .
+#
+# Alternatively, this file may be used under the terms of the GNU General
+# Public License version 3 or later as published by the Free Software
+# Foundation. Please review the following information to ensure the GNU
+# General Public License requirements will be met:
+# http://www.gnu.org/licenses/gpl-3.0.html.
+# 
+# NOTE: All products, services or anything associated to trademarks and
+# service marks used or referenced on this file are the property of their
+# respective companies/owners or its subsidiaries. Other names and brands
+# may be claimed as the property of others.
+#
+# For more info about intellectual property visit: aurorafoss.org or
+# directly send an email to: contact (at) aurorafoss.org .
+
+MENTO_VERSION="1.0.0"
+
+#TODO: Add check for .git and add .mento if doesn't exist on .gitignore
+
+# ------------------------------------------------------------------------------
+# Check for script compatibility
+# ------------------------------------------------------------------------------
+
+# kernel name
+case $(uname -s) in
+	Darwin) OS=osx;;
+	Linux) OS=linux;;
+	FreeBSD) OS=freebsd;;
+	*)
+		fatal "Unsupported OS $(uname -s)"
+		;;
+esac
+# machine hardware name
+case $(uname -m) in
+	x86_64|amd64) ARCH=x86_64; MODEL=64;;
+	aarch64) ARCH=aarch64; MODEL=64;;
+	i*86) ARCH=x86; MODEL=32;;
+	*)
+		fatal "Unsupported Arch $(uname -m)"
+		;;
+esac
+
+# ------------------------------------------------------------------------------
+# Log functions
+# ------------------------------------------------------------------------------
+
+_mento_error()
+{
+	(>&2 echo -e "$1: \033[31mERROR\033[0m: $2")
+}
+
+_mento_fatal()
+{
+	(>&2 echo -e "$1: \033[31mFATAL\033[0m: $2")
+	#exit 1
+}
+
+# Displays the given warning.
+# Used for common warning output.
+_mento_warning()
+{
+	(>&2 echo -e "$1: \033[33mWARN\033[0m: $2")
+}
+
+_mento_info()
+{
+	echo -e "\033[36mINFO\033[0m: $1"
+}
+
+
+# ------------------------------------------------------------------------------
+# Download manager
+# ------------------------------------------------------------------------------
+
+_mento_curl2() {
+	: "${CURL_USER_AGENT:="installer/install.sh $(command curl --version | head -n 1)"}"
+	TIMEOUT_ARGS=(--connect-timeout 5 --speed-time 30 --speed-limit 1024)
+	command curl --fail "${TIMEOUT_ARGS[@]}" -L -A "$CURL_USER_AGENT" "$@"
+}
+
+_mento_curl() {
+	if [ "$VERBOSITY" -gt 0 ]; then
+		_mento_curl2 -# "$@"
+	else
+		_mento_curl2 -sS "$@"
+	fi
+}
+
+# ------------------------------------------------------------------------------
+
+function _mento_greetings() {
+	echo -e "\e[92m _      _____ _      _____  ____ \n/ \__/|/  __// \  /|/__ __\/  _ \\
+| |\/|||  \  | |\ ||  / \  | / \|\n| |  |||  /_ | | \||  | |  | \_/|\n\_/  \|\____ \_/  \|  \_/  \____/\e[0m\n"
+	echo -e "\e[32mA portable and low-level build system in D\e[0m\n"
+}
+
+function mento() {
+	MENTO_NAME=$0
+	MENTO_PATH=.mento
+
+	_mento_greetings
+
+	mkdir -p .mento
+	if which dmd; then
+		MENTO_FOUND_COMPILER=1
+		export DC=dmd
+		dmd --version
+	elif which ldc; then
+		MENTO_FOUND_COMPILER=1
+		export DC=ldc
+		ldc -version
+	elif which gdc; then
+		MENTO_FOUND_COMPILER=1
+		export DC=gdc
+		gdc -v
+	else
+		_mento_warning $MENTO_NAME "Compiler not detected."
+		if which curl; then
+			mkdir -p $MENTO_PATH/dlang
+			if [ -x $MENTO_PATH/dlang/install.sh ]; then
+				$MENTO_PATH/dlang/install.sh update -p $MENTO_PATH/dlang
+				$MENTO_PATH/dlang/install.sh dmd -p $MENTO_PATH/dlang
+			else
+				_mento_curl -fsS https://dlang.org/install.sh -o .mento | bash -s dmd -p $MENTO_PATH/dlang
+			fi
+
+			MENTO_DMD_COMPILER=`find $MENTO_PATH/dlang -mindepth 1 -maxdepth 1 -not -name 'dub*' -not -name install.sh -not -name d-keyring.gpg -not -name '.*' -type d | grep -m1 "dmd"`
+			if [ ! $MENTO_DMD_EXPORT -eq 1 ]; then
+				export PATH="${MENTO_DMD_COMPILER}/linux/bin64${PATH:+:}${PATH:-}"
+				export LIBRARY_PATH="${MENTO_DMD_COMPILER}/linux/lib64${LIBRARY_PATH:+:}${LIBRARY_PATH:-}"
+				export LD_LIBRARY_PATH="${MENTO_DMD_COMPILER}/linux/lib64${LD_LIBRARY_PATH:+:}${LD_LIBRARY_PATH:-}"
+			fi
+			export DMD=dmd
+			export DC=dmd
+			export MENTO_DMD_EXPORT=1
+		else
+			_mento_fatal $MENTO_NAME "curl is not installed!"
+		fi
+	fi
+
+	if [ $MENTO_FOUND_COMPILER -eq 1 ]; then
+		_mento_info "Compiler detected!"
+	fi
+
+	if [ ! -f '.gitignore' ]; then
+		_mento_warning $MENTO_NAME ".gitignore file not found!"
+		touch .gitignore
+		_mento_info ".gitignore created"
+	else
+		_mento_info ".gitignore founded!"
+	fi
+
+	_mento_info "check for mento ingore entries"
+	if !(cat .gitignore | grep ".mento"); then
+		_mento_warning $MENTO_NAME ".mento entry not founded"
+		echo -e "#Mento Build System\n/.mento" >> .gitignore
+		_mento_info "entry added"
+	fi
+
+	if [ ! -f 'build.d' ]; then
+		_mento_fatal $MENTO_NAME "build.d not founded"
+	else
+		rdmd -Isrc/source/ build.d
+	fi
+}
+
+# ------------------------------------------------------------------------------
+
+# call mento
+mento $@

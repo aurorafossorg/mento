@@ -1,0 +1,7 @@
+{
+	"name": "mento",
+	"sourcePaths": ["source"],
+	"importPaths": ["source"],
+	"targetPath": ".out",
+	"targetType": "library"
+}
